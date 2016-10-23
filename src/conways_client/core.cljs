@@ -9,14 +9,9 @@
 
 (enable-console-print!)
 
-(defn on-js-reload []
-  (println "reload"))
-
-(def step 10)
-
-(defn draw! [monet-canvas app-state]
+(defn draw! [monet-canvas app-state width height cell-size]
   (canvas/add-entity monet-canvas :background
-                     (canvas/entity {:x 0 :y 0 :w 1200 :h 600}
+                     (canvas/entity {:x 0 :y 0 :w width :h height}
                                     nil
                                     (fn [ctx val]
                                       (-> ctx
@@ -25,8 +20,8 @@
                                       (canvas/stroke-style ctx "#999999")
                                       (canvas/begin-path ctx)
                                       (let [{:keys [x y w h]} val
-                                            xs (range 0 (inc w) step)
-                                            ys (range 0 (inc h) step)]
+                                            xs (range 0 (inc w) cell-size)
+                                            ys (range 0 (inc h) cell-size)]
                                         (doseq [x xs]
                                           (canvas/move-to ctx x 0)
                                           (canvas/line-to ctx x h))
@@ -36,18 +31,17 @@
                                       (canvas/stroke ctx))))
 
   (canvas/add-entity monet-canvas :cells
-                     (canvas/entity {:w 1200 :h 600}
+                     (canvas/entity {:w width :h height}
                                     nil
                                     (fn [ctx val]
-                                      (canvas/fill-style ctx "#009900")
+                                      (canvas/fill-style ctx "#007799")
                                       (doseq [[x y] (:cells @app-state)]
-                                        (canvas/fill-rect ctx {:x (inc (* step x)) :y (inc (* step y)) :w 9 :h 9}))))))
+                                        (canvas/fill-rect ctx {:x (inc (* cell-size x)) :y (inc (* cell-size y)) :w (dec cell-size) :h (dec cell-size)}))))))
 
 (defn disconnected [state]
   (println "disconnected"))
 
 (defn handle-message [state {:strs [alive] :as message}]
-;  (println message)
   (swap! state assoc :cells alive))
 
 (defn app-loop [state ws-chan]
@@ -62,7 +56,9 @@
 
 (defn connected [state ws-chan]
   (println "connected")
-  (reset! state {:cells [] :ws-chan ws-chan})
+  (swap! state assoc :ws-chan ws-chan)
+  (let [{:keys [width height]} @state]
+    (go (>! ws-chan {"start" {"width" width "height" height}})))
   (app-loop state ws-chan))
 
 (defn connection-error [state error]
@@ -82,14 +78,17 @@
 
 (defonce app-state (atom {:cells [] :ws-chan nil}))
 
-(defn init! []
+(defn init-canvas! [width height cell-size]
   (let [canvas-dom   (.getElementById js/document "canvas")
         monet-canvas (canvas/init canvas-dom "2d")]
-    (draw! monet-canvas app-state)
-    (connect! app-state)))
+    (draw! monet-canvas app-state width height cell-size)))
 
-(defn ^:export restart []
-  (go (>! (:ws-chan @app-state) ["restart"]))
-  (swap! app-state assoc :cells []))
+(defn ^:export start [width height cell-size]
+  (init-canvas! width height cell-size)
+  (swap! app-state merge {:width (quot width cell-size)
+                          :height (quot height cell-size)}))
 
-(init!)
+(defn on-js-reload []
+  (.reload js/location true))
+
+(connect! app-state)
