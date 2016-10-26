@@ -9,34 +9,35 @@
 
 (enable-console-print!)
 
-(defn draw! [monet-canvas app-state width height cell-size]
+(defn draw! [monet-canvas app-state]
   (canvas/add-entity monet-canvas :background
-                     (canvas/entity {:x 0 :y 0 :w width :h height}
+                     (canvas/entity app-state
                                     nil
                                     (fn [ctx val]
-                                      (-> ctx
-                                          (canvas/fill-style "#e6e6e6")
-                                          (canvas/fill-rect val))
-                                      (canvas/stroke-style ctx "#999999")
-                                      (canvas/begin-path ctx)
-                                      (let [{:keys [x y w h]} val
-                                            xs (range 0 (inc w) cell-size)
-                                            ys (range 0 (inc h) cell-size)]
-                                        (doseq [x xs]
-                                          (canvas/move-to ctx x 0)
-                                          (canvas/line-to ctx x h))
-                                        (doseq [y ys]
-                                          (canvas/move-to ctx 0 y)
-                                          (canvas/line-to ctx w y)))
-                                      (canvas/stroke ctx))))
+                                      (let [{:keys [width height cell-size]} @val]
+                                        (-> ctx
+                                            (canvas/fill-style "#e6e6e6")
+                                            (canvas/fill-rect {:w width :h height}))
+                                        (canvas/stroke-style ctx "#999999")
+                                        (canvas/begin-path ctx)
+                                        (let [xs (range 0 (inc width) cell-size)
+                                              ys (range 0 (inc height) cell-size)]
+                                          (doseq [x xs]
+                                            (canvas/move-to ctx x 0)
+                                            (canvas/line-to ctx x height))
+                                          (doseq [y ys]
+                                            (canvas/move-to ctx 0 y)
+                                            (canvas/line-to ctx width y)))
+                                        (canvas/stroke ctx)))))
 
   (canvas/add-entity monet-canvas :cells
-                     (canvas/entity {:w width :h height}
+                     (canvas/entity app-state
                                     nil
                                     (fn [ctx val]
-                                      (canvas/fill-style ctx "#007799")
-                                      (doseq [[x y] (:cells @app-state)]
-                                        (canvas/fill-rect ctx {:x (inc (* cell-size x)) :y (inc (* cell-size y)) :w (dec cell-size) :h (dec cell-size)}))))))
+                                      (let [{:keys [cells cell-size]} @val]
+                                        (canvas/fill-style ctx "#007799")
+                                        (doseq [[x y] cells]
+                                          (canvas/fill-rect ctx {:x (inc (* cell-size x)) :y (inc (* cell-size y)) :w (dec cell-size) :h (dec cell-size)})))))))
 
 (defn disconnected [state]
   (println "disconnected"))
@@ -54,20 +55,25 @@
         (recur)
         (disconnected state)))))
 
+(defn restart-grid [state]
+  (let [{:keys [width height cell-size]} @state]
+    (go (>! (:ws-chan @state) {"start" {:width (quot width cell-size) :height (quot height cell-size)} }))))
+
 (defn connected [state ws-chan]
   (println "connected")
   (swap! state assoc :ws-chan ws-chan)
-  (let [{:keys [width height]} @state]
-    (go (>! ws-chan {"start" {"width" width "height" height}})))
+  (restart-grid state)
   (app-loop state ws-chan))
 
 (defn connection-error [state error]
   (println "Couldn't connect to server " error))
 
-(def ws-port 8080)
+(goog-define dynamic-ws-port false)
+
+(def default-ws-port 8080)
 
 (defn ws-url []
-  (gstring/format "ws://%s:%s/websocket" js/window.location.hostname ws-port))
+  (gstring/format "ws://%s:%s/websocket" js/window.location.hostname (if dynamic-ws-port js/window.location.port default-ws-port)))
 
 (defn connect! [state]
   (go
@@ -78,15 +84,28 @@
 
 (defonce app-state (atom {:cells [] :ws-chan nil}))
 
+(defn update-size [width height cell-size]
+  (swap! app-state merge {:width width
+                          :height height
+                          :cell-size cell-size}))
+
 (defn init-canvas! [width height cell-size]
   (let [canvas-dom   (.getElementById js/document "canvas")
         monet-canvas (canvas/init canvas-dom "2d")]
-    (draw! monet-canvas app-state width height cell-size)))
+    (update-size width height cell-size)
+    (draw! monet-canvas app-state)))
 
 (defn ^:export start [width height cell-size]
+  (println "start" width height cell-size)
   (init-canvas! width height cell-size)
-  (swap! app-state merge {:width (quot width cell-size)
-                          :height (quot height cell-size)}))
+  (swap! app-state merge {:width width
+                          :height height
+                          :cell-size cell-size}))
+
+(defn ^:export resize [width height cell-size]
+  (println "resize" width height cell-size)
+  (update-size width height cell-size)
+  (restart-grid app-state))
 
 (defn on-js-reload []
   (.reload js/location true))

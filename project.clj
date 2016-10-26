@@ -49,7 +49,8 @@
                 :compiler {:output-to "resources/public/js/compiled/conways_client.js"
                            :main conways-client.core
                            :optimizations :advanced
-                           :pretty-print false}}]}
+                           :pretty-print false
+                           :closure-defines {"conways_client.core.dynamic_ws_port" true}}}]}
 
   :figwheel {;; :http-server-root "public" ;; default and assumes "resources"
              ;; :server-port 3449 ;; default
