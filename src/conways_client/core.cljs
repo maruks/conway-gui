@@ -45,13 +45,18 @@
 (defn handle-message [state {:strs [alive] :as message}]
   (swap! state assoc :cells alive))
 
+(defn request-next-grid [ws-chan]
+  (go (>! ws-chan {"next" 1})))
+
 (defn app-loop [state ws-chan]
   (go-loop []
-    (let [{:keys [message error] :as msg} (<! ws-chan)]
-      (if-not error
-        (when message
+    (let [timeout-ch                           (timeout 500)
+          [{:keys [message error] :as msg} ch] (alts! [timeout-ch ws-chan])]
+      (if (= ch timeout-ch)
+        (request-next-grid ws-chan)
+        (when (and message (not error))
           (handle-message state message)))
-      (if msg
+      (if (or (= ch timeout-ch) msg)
         (recur)
         (disconnected state)))))
 
