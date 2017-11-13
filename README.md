@@ -17,3 +17,13 @@
 ```javascript
 { "alive" : [[2,3], [1,3]] }
 ```
+
+## Build
+
+```
+lein cljsbuild once min
+```
+
+```
+lein figwheel
+```
